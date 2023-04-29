@@ -1,0 +1,219 @@
+---
+title: "Project 2"
+author: "Joshua Hummell, "
+date: "2023-04-28"
+output: html_document
+---
+
+
+```{css, echo=FALSE}
+pre {
+  max-height: 500px;
+  overflow-y: auto;
+}
+
+pre[class] {
+  max-height: 90px;
+}
+```
+
+```{css, echo=FALSE}
+.scroll-90 {
+  max-height: 90px;
+  overflow-y: auto;
+  background-color: inherit;
+}
+```
+
+
+
+
+
+```{r setup, include=FALSE}
+library('urca')
+library('tidyverse')
+library("dplyr")
+library("readxl")
+library('tsibble')
+library('tsibbledata')
+library('lubridate')
+library('fabletools')
+library('fpp3')
+library('httr')
+library('readxl')
+library('timetk')
+library("readr")
+```
+
+Intro:
+We are a team of Data Scientists working for a PCG company. Due to regulation, we need to better predict the PH in our beverages.
+
+
+Summary [we will add in after we run the models]
+
+1) Ensure Data Quality
+While performing the ETL we noticed that there were missing data points across several processes as well as several missing brand entries. 
+
+
+
+
+```{r pressure, .scroll-90, warning=FALSE}
+myfile <- "https://raw.githubusercontent.com/jhumms/624/main/data-dump/StudentData.csv"
+Train <- read_csv(myfile)
+
+
+myfile <- "https://raw.githubusercontent.com/jhumms/624/main/data-dump/StudentEvaluation.csv"
+Test <- read_csv(myfile)
+rm(myfile)
+
+```
+
+# ETL
+## The first step is to get a good look at our data and make sure it is clean enough to model.
+
+```{r}
+dim(Train)
+
+dim(Test)
+```
+
+We see that the Train Table has 2571 entries and 33 columns. While Test has all 33 columns but only 267 entries. Let's glimpse the data to see what we can find. 
+```{r}
+head(Train)
+```
+We can see that there are different Branded beverages with different fills, pressures, carb temps, etc. When we clean the data, it will be important to clean it by each group so that we are not filling in incorrect values. Now let's run the summary. 
+
+
+
+```{r}
+summary(Train)
+
+summary(Test)
+```
+
+When we look at the summary stats, we can see there are quite a few NAs in both Train and Test, I think it is safe to remove the NAs the values, we will replace with the mean. To see if this is viable, we can take a look the box plots for the data. 
+
+
+```{r}
+par(mfrow=c(2,5))
+for (i in 2:length(Train)) {
+        boxplot(Train[,i], main=names(Train[i]), type="l")
+
+}
+
+
+BPT <-Test %>% dplyr::select(-PH)
+par(mfrow=c(2,5))
+for (i in 2:length(BPT)) {
+        boxplot(BPT[,i], main=names(BPT[i]), type="l")
+
+}
+rm(BPT)
+```
+The only one that wouldn't appear to work is MFR, which has crazy variation and also a large amount of NAs. We will begin by removing that and making sure Brand Code is a factor. 
+
+```{r}
+Train <- Train %>% dplyr::select(-MFR)
+Train$`Brand Code` <- as.factor(Train$`Brand Code`)
+unique(Train$`Brand Code`)
+
+Test <- Test %>% dplyr::select(-MFR)
+```
+
+
+I also noticed that there are a few Brand Codes that are NA (120 ~ 5% of the data), we will remove those entries. 
+
+```{r}
+Train <- Train %>%
+ filter(!is.na(`Brand Code`))
+```
+
+
+
+```{r}
+Train <- Train %>%
+  group_by(`Brand Code`) %>% 
+  mutate(across(1:31, ~replace_na(., mean(., na.rm=TRUE))))
+
+
+Test <- Test %>% 
+  dplyr::select(-PH) %>% 
+  group_by(`Brand Code`) %>% 
+  mutate(across(1:30, ~replace_na(., mean(., na.rm=TRUE))))
+
+
+```
+
+
+```{r}
+summary(Train)
+
+summary(Test)
+```
+
+Now that we have the NAs out of the way we can take a look at the corrplot and see if there is any collinearity. We will look at all, and then any that are above .85
+
+```{r}
+m <- stats::cor(Train[,2:32], method = "pearson")
+
+corrplot::corrplot(m)
+
+
+corrplot::corrplot(m[apply(m, 1, function(x) any(x > 0.84 & x < 1) ),
+                   apply(m, 2, function(x) any(x > 0.84 & x < 1) )])
+
+```
+
+We can see that there is some collinearity, especially between Balling, Density, Alch Rel, Carb Rel, and Balling Lvl. If we choose Ridge regression or any of the more advanced models, we will not have to worry too much about it. But if we are choosing a more simple model, we will have to make sure we account for the multicollinearity by merging/removing columns. 
+
+Let's check the histogram for PH across each group, then in general see how the data plots against each other:
+
+
+```{r}
+for (i in unique(Train$`Brand Code`)) {
+  print(Train %>% filter(`Brand Code` == i) %>%
+    ggplot(aes(x=PH)) +
+    geom_histogram(bins=25))
+}
+
+
+for (i in unique(Train$`Brand Code`)) {
+  print(Train %>% filter(`Brand Code` == i) %>%
+    ggplot(aes(x=log(PH))) +
+    geom_histogram(bins=25))
+}
+
+
+```
+
+
+The distribution around PH is better as logged and will help us with the forecasting. Now let's see what the relationship looks like between PH and the other variables. 
+
+And now I think it is time for modelling:
+
+
+
+Linear
+
+
+Non Linear
+
+
+Tree based
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
