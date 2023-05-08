@@ -86,8 +86,7 @@ rm(myfile)
 
 ```
 
-# ETL
-## The first step is to get a good look at our data and make sure it is clean enough to model.
+The first step is to get a good look at our data and make sure it is clean enough to model.
 
 ```{r}
 dim(Train)
