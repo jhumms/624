@@ -53,6 +53,11 @@ library("MASS")
 library("kableExtra")
 library("randomForest")
 library("gbm")
+library('rpart')
+library('rpart.plot')
+library('DT')
+library('xgboost')
+
 ```
 
 # Instructions
@@ -422,27 +427,106 @@ rbind( "KNN" = knn_metrics,
        "MARS" = mars_metrics) %>% 
   kable() %>% kable_paper()
 ```
-  
 
 The top predictors in our best performing non-linear model with Support Vector Machine (SVM).
+
+
+## Tree based Models
+
+
+### Decision Tree
+
+The next model we developed was a decision tree. Decision trees are capable of capturing nonlinear relationships as well as feature importance. They are highly interpretable, but are not as accurate as other tree based methods. The model we created has a maximum depth of 12 leaves and a minimum split of 30 observations. The results and decision tree structure are presented below.
+
+```{r message=FALSE, warning=FALSE}
+colnames(train_data) <- make.names(colnames(train_data))
+colnames(eval_data) <- make.names(colnames(eval_data))
+colnames(Test) <- make.names(colnames(Test))
+
+rpart.model <- train(PH~.,
+                   data = train_data,
+                   method = "rpart",
+                   tuneLength = 200,
+                   control = rpart.control(maxdepth = 12, minsplit = 30),
+                   trControl=trainControl(method = "cv", number = 10))
+
+
+rpart.pred <- predict(rpart.model, newdata = eval_data)
+
+rpart.metrics <- postResample(pred = rpart.pred, obs = eval_data$PH)
+
+rpart.metrics
+```
+
+
+```{r}
+rpart.plot(rpart.model$finalModel)
+```
+
+### XGBoost
+
+The last model we created was an XGBoost tree model. XGBoost is a ensemble algorithm, in which many decision trees are combined into a single model to improve overall accuracy. The downside of ensemble methods are that they are more difficult to interpret compared to individual models. The optimal XGBoost model was found via a grid search where the best results occurred with 1000 decision trees, a learning rate of 0.05, a maximum tree depth of 5, and a gamma of 0. The results of the model can be seen below.
+
+```{r}
+set.seed(100)
+
+hyperparameters <- expand.grid(
+  nrounds = 1000,
+  eta = 0.05,
+  max_depth = 5,
+  gamma = 0,
+  colsample_bytree = 1,
+  min_child_weight = 1,
+  subsample = 1
+)
+
+xgb.model <- train(PH~.,
+                   data = train_data,
+                   method = "xgbTree",
+                   tuneGrid = hyperparameters,
+                   trControl = trainControl(method = "cv", number = 10),
+                   verbosity = 0)
+
+
+xgb.pred <- predict(xgb.model, newdata = eval_data)
+
+xgb.metrics <- postResample(pred = xgb.pred, obs = eval_data$PH)
+
+xgb.metrics
+```
 
 
 #  Evaluate & Select Models
 
 Next, the metrics for each of the best performing Linear, Non-Linear, and Tree based models are complied to evaluate the performance of each and select the best model.
 
-```{r message=FALSE, warning=FALSE}
-all_metrics <- as.data.frame(rbind("Linear Regression" = lmResample,
-      "SVM" = svm_metrics))
-all_metrics[order(all_metrics$RMSE),] %>% 
-  kable() %>% kable_paper()
+The RMSE, $R^2$, and MAE were recorded for each model presented above to be compared to find the optimal model to predict `PH`. The linear models produced the worst results, nonlinear produced middle of the road results, and the tree based models achieved the best performance metrics. The best of the best model is the XGBoost with the lowest RMSE (0.10), best $R^2$ (0.66), and lowest MAE (0.07). 
+
+```{r}
+kableExtra::kable(rbind(
+  mars_metrics,
+  knn_metrics,
+  svm_metrics,
+  rpart.metrics,
+  xgb.metrics))
 ```
 
-Using the RMSE, we see the best performing model of those created is the SVM model. Next we will proceed to evaluate the model and its important variables using `varImp`.
+## Variable Importance
 
-```{r message=FALSE, warning=FALSE}
-plot(varImp(svmModel), top=10)
+The variables that are most impactful for predicting `PH` are `Mnf.Flow`, `Usage.cont`, and `Oxygen.Filter`. The data table exhibits all the variables importance to the XGBoost model. The plot showcases the top 10 contributors to `PH` predictive power.
+
+```{r}
+importance_matrix = xgb.importance(data = train_data, model = xgb.model$finalModel)
+
+datatable(importance_matrix)
 ```
+
+
+```{r}
+xgb.plot.importance(importance_matrix[1:10,])
+```
+
+
 
 # Predict PH Values
 
@@ -464,7 +548,7 @@ test_features <- Test %>%
 Next, for easy of visualization the `Brand Code` is plotted to identify the spread of the factors and identify the empty values that will need to be updated. 
 
 ```{r message=FALSE, warning=FALSE}
-ggplot(Test, aes(x=reorder(`Brand Code`, `Brand Code`, function(x)-length(x)))) +
+ggplot(Test, aes(x=reorder(Brand.Code, Brand.Code, function(x)-length(x)))) +
 geom_bar() +  labs(x='Brand Code')+
 labs(title= 'Brand Code Distribution')+
    theme_minimal()
@@ -476,10 +560,10 @@ In order to run our model using the SVM model, the test data needs to be cleaned
 #prep data- change Brand Code to factor
 
 test_features <- test_features %>%
- filter(!is.na(`Brand Code`))
+ filter(!is.na(Brand.Code))
 #convert variable type to factor
 test_features <- test_features %>% 
-  dplyr::mutate(`Brand Code` = factor(`Brand Code`, 
+  dplyr::mutate(Brand.Code = factor(Brand.Code, 
                          levels = c('A','B','C','D'), 
                          ordered = FALSE))
 ```
@@ -501,7 +585,7 @@ test_features <- predict(preProc_test, test_features)
 Next, the predictions for PH are generated using the `predict` function along with the optimal model identified earlier as the SVM model.
 
 ```{r message=FALSE, warning=FALSE}
-predict <- round(predict(svmModel, newdata=test_features),2)
+predict <- round(predict(xgb.model, newdata=test_features),2)
 pH <- as.data.frame(predict)
 pH<- rename(pH, pH = predict)
 ```
